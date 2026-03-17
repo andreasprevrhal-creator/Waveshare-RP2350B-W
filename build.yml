@@ -1,0 +1,50 @@
+name: Build-Waveshare-RP2350B-Custom-Pins
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MicroPython
+        uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          submodules: true
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi build-essential python3 libnewlib-arm-none-eabi
+
+      - name: Build mpy-cross
+        run: make -C mpy-cross
+
+      - name: Patch Waveshare Pin Mapping
+        run: |
+          CONF="ports/rp2/boards/RPI_PICO2_W/mpconfigboard.h"
+          
+          # 1. PSRAM auf GPIO 47 (identisch zu Pimoroni)
+          echo "#define MICROPY_HW_PSRAM_CS_PIN (47)" >> $CONF
+          echo "#define MICROPY_HW_PSRAM_MAX_SEG_SIZE (8 * 1024 * 1024)" >> $CONF
+          echo "#define MICROPY_HW_QMI_SUPPORT (1)" >> $CONF
+          
+          # 2. WLAN (CYW43) Pins auf Waveshare-Werte anpassen
+          # Wir ueberschreiben die Standard-Werte des Pico 2 W
+          echo "#define CYW43_PIN_WL_REG_ON (36)" >> $CONF
+          echo "#define CYW43_PIN_WL_DATA (37)" >> $CONF
+          echo "#define CYW43_PIN_WL_CS (38)" >> $CONF
+          echo "#define CYW43_PIN_WL_CLK (39)" >> $CONF
+          
+          # 3. PIO Instanz fuer WLAN (verhindert Konflikt mit PSRAM)
+          echo "#define CYW43_PIO_INSTANCE 1" >> $CONF
+
+      - name: Build Firmware
+        run: |
+          # Build fuer RP2350 Architektur mit WLAN-Support
+          make -C ports/rp2 BOARD=RPI_PICO2_W BOARD_VARIANT=rp2350
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-rp2350b-custom-firmware
+          path: ports/rp2/build-RPI_PICO2_W/firmware.uf2
